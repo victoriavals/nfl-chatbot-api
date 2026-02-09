@@ -4,7 +4,7 @@ Chat Routes - API endpoints for chatbot.
 This module provides FastAPI routes for chat, health check, and memory management.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, status
 
@@ -168,7 +168,7 @@ async def clear_memory(
 async def get_memory_length(
     user_id: str,
     x_api_key: str = Header(..., description="API Key for authentication")
-) -> dict[str, any]:
+) -> dict[str, Any]:
     """
     Get memory length for a user.
     

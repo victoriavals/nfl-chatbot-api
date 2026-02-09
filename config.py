@@ -1,32 +1,25 @@
 """
 Configuration module for NFL Chatbot API.
 
-This module provides centralized configuration for the FastAPI backend,
-importing settings from the parent env.py file.
+This module provides centralized configuration for the FastAPI backend.
+All imports are from local env.py (same folder).
 """
 
-import sys
 import os
 from typing import ClassVar
 
-# Add parent directory to path to import env
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from env import (
-        ConstantsVar,
-        debug_info,
-        debug_error,
-        debug_warning,
-        debug_success,
-        debug_critical,
-        debug_prompt,
-        IS_DEBUG_MODE,
-        IS_PROMPT_CHECK
-    )
-except ImportError as e:
-    print(f"Error: Could not import env.py from parent directory: {e}")
-    sys.exit(1)
+# Import from local env.py (same folder)
+from env import (
+    ConstantsVar,
+    debug_info,
+    debug_error,
+    debug_warning,
+    debug_success,
+    debug_critical,
+    debug_prompt,
+    IS_DEBUG_MODE,
+    IS_PROMPT_CHECK
+)
 
 
 class APIConfig:
@@ -55,9 +48,9 @@ class APIConfig:
     DEFAULT_TEMPERATURE: ClassVar[float] = 0.7
     REQUEST_TIMEOUT: ClassVar[int] = 30  # seconds
     
-    # Knowledge Base Path
+    # Knowledge Base Path (in same folder as this config)
     KNOWLEDGE_BASE_PATH: ClassVar[str] = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        os.path.dirname(os.path.abspath(__file__)),
         "myData.md"
     )
 
