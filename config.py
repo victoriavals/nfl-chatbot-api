@@ -30,7 +30,7 @@ class APIConfig:
     """
     
     # API Authentication
-    API_KEY: ClassVar[str] = os.getenv("NFL_CHATBOT_API_KEY", "nfl-dev-key-2026")
+    API_KEY: ClassVar[str] = os.getenv("NFL_CHATBOT_API_KEY", "")
     
     # CORS Settings
     ALLOWED_ORIGINS: ClassVar[list[str]] = [
@@ -53,6 +53,10 @@ class APIConfig:
         os.path.dirname(os.path.abspath(__file__)),
         "myData.md"
     )
+
+    # Supabase Settings
+    SUPABASE_URL: ClassVar[str] = ConstantsVar.SUPABASE_PROJECT_URL
+    SUPABASE_KEY: ClassVar[str] = ConstantsVar.SUPABASE_ANON_KEY
 
 
 # Re-export from env for convenience

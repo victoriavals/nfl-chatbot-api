@@ -44,6 +44,10 @@ class ConstantsVar:
     MY_CEREBRAS_API_KEY: str = os.getenv("MY_CEREBRAS_API_KEY", "")
     MY_GEMINI_API_KEY: str = os.getenv("MY_GEMINI_API_KEY", "")
     MY_GROQ_API_KEY: str = os.getenv("MY_GROQ_API_KEY", "")
+
+    ## Supabase
+    SUPABASE_PROJECT_URL: str = os.getenv("SUPABASE_PROJECT_URL", "")
+    SUPABASE_ANON_KEY: str = os.getenv("SUPABASEANON_PUBLIC_KEY", "")
     
 
 def debug_error(text: str) -> None:
