@@ -92,3 +92,39 @@ class ClearMemoryResponse(BaseModel):
     status: str
     user_id: str
     messages_cleared: int
+
+
+class GeneralAIRequest(BaseModel):
+    """
+    Request model for general AI chat endpoint (no RAG).
+    
+    Attributes:
+        user_id: Unique identifier for the user
+        message: The user's message/question
+        system_prompt: Optional custom system prompt for AI personality
+        temperature: Optional temperature override (0.0-1.0)
+    """
+    user_id: str = Field(..., description="Unique user identifier", min_length=1)
+    message: str = Field(..., description="User message", min_length=1, max_length=2000)
+    system_prompt: Optional[str] = Field(None, description="Custom system prompt", max_length=500)
+    temperature: Optional[float] = Field(None, description="Temperature override (0.0-1.0)", ge=0.0, le=1.0)
+
+
+class GeneralAIResponse(BaseModel):
+    """
+    Response model for general AI chat endpoint.
+    
+    Attributes:
+        status: Response status (success/error)
+        response: The AI's response
+        provider: Which LLM provider was used
+        model: Which model was used
+        memory_length: Current conversation memory length
+        error_message: Error details if status is error
+    """
+    status: str
+    response: str = ""
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    memory_length: int = 0
+    error_message: Optional[str] = None
