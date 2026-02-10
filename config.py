@@ -55,8 +55,6 @@ class APIConfig:
     )
 
     # Supabase Settings
-    SUPABASE_URL: ClassVar[str] = ConstantsVar.SUPABASE_PROJECT_URL
-    SUPABASE_KEY: ClassVar[str] = ConstantsVar.SUPABASE_ANON_KEY
 
 
 # Re-export from env for convenience
