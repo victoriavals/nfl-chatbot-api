@@ -2,18 +2,16 @@
 LLM Service - Unlimited LLM with Fallback System.
 
 This module provides LLM integration with automatic fallback
-when one provider fails. Includes Ai4Chat as primary and
-Cerebras/Groq/OpenRouter/Gemini as fallbacks.
+when one provider fails. Uses native httpx for lightweight Vercel deployment.
+
+Providers: Ai4Chat (primary) -> Cerebras -> Groq -> OpenRouter -> Gemini.
 """
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
-from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage
 
 from config import (
     ConstantsVar,
@@ -72,7 +70,7 @@ class LLMService:
         Initialize the LLM Service.
         
         Args:
-            temperature: Temperature setting for LLM responses
+            temperature (float): Temperature setting for LLM responses.
         """
         self.temperature: float = temperature
         self.providers: list[LLMProvider] = self._initialize_providers()
@@ -85,7 +83,7 @@ class LLMService:
         Initialize and return list of LLM providers sorted by priority.
         
         Returns:
-            List of LLMProvider configs sorted by priority
+            list[LLMProvider]: Provider configs sorted by priority.
         """
         providers: list[LLMProvider] = []
         
@@ -150,13 +148,13 @@ class LLMService:
     
     async def _query_ai4chat(self, prompt: str) -> LLMResponse:
         """
-        Query Ai4Chat API.
+        Query Ai4Chat API (free, no key required).
         
         Args:
-            prompt: The prompt to send
+            prompt (str): The prompt to send.
             
         Returns:
-            LLMResponse with result
+            LLMResponse: Result from Ai4Chat.
         """
         debug_info("[Ai4Chat] Attempting query...")
         
@@ -172,7 +170,7 @@ class LLMService:
                     "Referer": "https://www.ai4chat.co/pages/riddle-generator"
                 }
                 
-                response = await client.get(
+                response: httpx.Response = await client.get(
                     "https://yw85opafq6.execute-api.us-east-1.amazonaws.com/default/boss_mode_15aug",
                     params=params,
                     headers=headers
@@ -208,92 +206,240 @@ class LLMService:
                 error_message=str(e)
             )
     
-    def _create_llm_client(self, provider: LLMProvider):
+    async def _query_openai_compatible(self, provider: LLMProvider, prompt: str) -> LLMResponse:
         """
-        Create LangChain LLM client for the given provider.
+        Query an OpenAI-compatible API (Cerebras, Groq, OpenRouter).
+        
+        Uses raw httpx POST to /chat/completions endpoint.
         
         Args:
-            provider: LLMProvider configuration
+            provider (LLMProvider): The provider configuration.
+            prompt (str): The prompt to send.
             
         Returns:
-            LangChain chat model instance
-        """
-        if provider.provider_type == "openai_compatible":
-            extra_kwargs: dict = {}
-            if provider.name == "OpenRouter":
-                extra_kwargs["default_headers"] = {
-                    "HTTP-Referer": "http://localhost:3000",
-                    "X-Title": "NFLChatbotAPI"
-                }
-            
-            return ChatOpenAI(
-                api_key=provider.api_key,
-                base_url=provider.base_url,
-                model=provider.model,
-                temperature=self.temperature,
-                **extra_kwargs
-            )
-        elif provider.provider_type == "google":
-            return ChatGoogleGenerativeAI(
-                model=provider.model,
-                temperature=self.temperature,
-                google_api_key=provider.api_key
-            )
-        else:
-            raise ValueError(f"Unknown provider type: {provider.provider_type}")
-    
-    async def _query_langchain_provider(self, provider: LLMProvider, prompt: str) -> LLMResponse:
-        """
-        Query a LangChain-based provider.
-        
-        Args:
-            provider: The LLM provider to use
-            prompt: The prompt to send
-            
-        Returns:
-            LLMResponse with result
+            LLMResponse: Result from the provider.
         """
         debug_info(f"[{provider.name}] Attempting query with model: {provider.model}")
         
         try:
-            llm = self._create_llm_client(provider)
-            messages = [HumanMessage(content=prompt)]
-            response = llm.invoke(messages)
+            headers: dict[str, str] = {
+                "Authorization": f"Bearer {provider.api_key}",
+                "Content-Type": "application/json"
+            }
             
-            if response.content:
-                debug_success(f"[{provider.name}] Request successful!")
-                return LLMResponse(
-                    status=LLMStatus.SUCCESS,
-                    content=str(response.content),
-                    provider=provider.name,
-                    model=provider.model
+            # OpenRouter requires extra headers
+            if provider.name == "OpenRouter":
+                headers["HTTP-Referer"] = "http://localhost:3000"
+                headers["X-Title"] = "NFLChatbotAPI"
+            
+            payload: dict[str, Any] = {
+                "model": provider.model,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": self.temperature
+            }
+            
+            async with httpx.AsyncClient(timeout=APIConfig.REQUEST_TIMEOUT) as client:
+                response: httpx.Response = await client.post(
+                    f"{provider.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload
                 )
+            
+            if response.status_code == 200:
+                data: dict[str, Any] = response.json()
+                content: str = data["choices"][0]["message"]["content"]
+                
+                if content:
+                    debug_success(f"[{provider.name}] Request successful!")
+                    return LLMResponse(
+                        status=LLMStatus.SUCCESS,
+                        content=content,
+                        provider=provider.name,
+                        model=provider.model
+                    )
+                else:
+                    debug_warning(f"[{provider.name}] Empty response received.")
+                    return LLMResponse(
+                        status=LLMStatus.ERROR,
+                        content=None,
+                        provider=provider.name,
+                        model=provider.model,
+                        error_message="Empty response"
+                    )
             else:
-                debug_warning(f"[{provider.name}] Empty response received.")
-                return LLMResponse(
-                    status=LLMStatus.ERROR,
-                    content=None,
-                    provider=provider.name,
-                    model=provider.model,
-                    error_message="Empty response"
+                error_body: str = response.text[:200]
+                return self._classify_http_error(
+                    provider, response.status_code, error_body
                 )
                 
         except Exception as e:
-            error_msg: str = str(e)
+            return self._classify_exception(provider, e)
+    
+    async def _query_gemini(self, provider: LLMProvider, prompt: str) -> LLMResponse:
+        """
+        Query Google Gemini API using REST endpoint.
+        
+        Args:
+            provider (LLMProvider): The Gemini provider configuration.
+            prompt (str): The prompt to send.
             
-            # Classify error type
-            if "429" in error_msg or "rate" in error_msg.lower():
-                status = LLMStatus.RATE_LIMITED
-                debug_warning(f"[{provider.name}] Rate limited: {error_msg[:100]}")
-            elif "401" in error_msg or "unauthorized" in error_msg.lower():
-                status = LLMStatus.API_KEY_MISSING
-                debug_error(f"[{provider.name}] API key issue: {error_msg[:100]}")
+        Returns:
+            LLMResponse: Result from Gemini.
+        """
+        debug_info(f"[{provider.name}] Attempting query with model: {provider.model}")
+        
+        try:
+            url: str = (
+                f"https://generativelanguage.googleapis.com/v1beta/"
+                f"models/{provider.model}:generateContent"
+                f"?key={provider.api_key}"
+            )
+            
+            payload: dict[str, Any] = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt}
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": self.temperature
+                }
+            }
+            
+            async with httpx.AsyncClient(timeout=APIConfig.REQUEST_TIMEOUT) as client:
+                response: httpx.Response = await client.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json=payload
+                )
+            
+            if response.status_code == 200:
+                data: dict[str, Any] = response.json()
+                content: str = (
+                    data["candidates"][0]["content"]["parts"][0]["text"]
+                )
+                
+                if content:
+                    debug_success(f"[{provider.name}] Request successful!")
+                    return LLMResponse(
+                        status=LLMStatus.SUCCESS,
+                        content=content,
+                        provider=provider.name,
+                        model=provider.model
+                    )
+                else:
+                    debug_warning(f"[{provider.name}] Empty response received.")
+                    return LLMResponse(
+                        status=LLMStatus.ERROR,
+                        content=None,
+                        provider=provider.name,
+                        model=provider.model,
+                        error_message="Empty response"
+                    )
             else:
-                status = LLMStatus.ERROR
-                debug_error(f"[{provider.name}] Error: {error_msg[:100]}")
+                error_body: str = response.text[:200]
+                return self._classify_http_error(
+                    provider, response.status_code, error_body
+                )
+                
+        except Exception as e:
+            return self._classify_exception(provider, e)
+    
+    def _classify_http_error(
+        self,
+        provider: LLMProvider,
+        status_code: int,
+        error_body: str
+    ) -> LLMResponse:
+        """
+        Classify an HTTP error response into the appropriate LLMStatus.
+        
+        Args:
+            provider (LLMProvider): The provider that returned the error.
+            status_code (int): HTTP status code.
+            error_body (str): Response body for logging.
             
+        Returns:
+            LLMResponse: Error response with classified status.
+        """
+        error_msg: str = f"HTTP {status_code}: {error_body}"
+        
+        if status_code == 429:
+            debug_warning(f"[{provider.name}] Rate limited: {error_msg[:100]}")
             return LLMResponse(
-                status=status,
+                status=LLMStatus.RATE_LIMITED,
+                content=None,
+                provider=provider.name,
+                model=provider.model,
+                error_message=error_msg
+            )
+        elif status_code in (401, 403):
+            debug_error(f"[{provider.name}] API key issue: {error_msg[:100]}")
+            return LLMResponse(
+                status=LLMStatus.API_KEY_MISSING,
+                content=None,
+                provider=provider.name,
+                model=provider.model,
+                error_message=error_msg
+            )
+        elif status_code == 404:
+            debug_error(f"[{provider.name}] Model not found: {error_msg[:100]}")
+            return LLMResponse(
+                status=LLMStatus.MODEL_NOT_FOUND,
+                content=None,
+                provider=provider.name,
+                model=provider.model,
+                error_message=error_msg
+            )
+        else:
+            debug_error(f"[{provider.name}] Error: {error_msg[:100]}")
+            return LLMResponse(
+                status=LLMStatus.ERROR,
+                content=None,
+                provider=provider.name,
+                model=provider.model,
+                error_message=error_msg
+            )
+    
+    def _classify_exception(self, provider: LLMProvider, exc: Exception) -> LLMResponse:
+        """
+        Classify a Python exception into the appropriate LLMStatus.
+        
+        Args:
+            provider (LLMProvider): The provider that raised the exception.
+            exc (Exception): The exception.
+            
+        Returns:
+            LLMResponse: Error response with classified status.
+        """
+        error_msg: str = str(exc)
+        
+        if "429" in error_msg or "rate" in error_msg.lower():
+            debug_warning(f"[{provider.name}] Rate limited: {error_msg[:100]}")
+            return LLMResponse(
+                status=LLMStatus.RATE_LIMITED,
+                content=None,
+                provider=provider.name,
+                model=provider.model,
+                error_message=error_msg
+            )
+        elif "401" in error_msg or "unauthorized" in error_msg.lower():
+            debug_error(f"[{provider.name}] API key issue: {error_msg[:100]}")
+            return LLMResponse(
+                status=LLMStatus.API_KEY_MISSING,
+                content=None,
+                provider=provider.name,
+                model=provider.model,
+                error_message=error_msg
+            )
+        else:
+            debug_error(f"[{provider.name}] Error: {error_msg[:100]}")
+            return LLMResponse(
+                status=LLMStatus.ERROR,
                 content=None,
                 provider=provider.name,
                 model=provider.model,
@@ -305,10 +451,10 @@ class LLMService:
         Send a query to the LLM with automatic fallback.
         
         Args:
-            prompt: The prompt to send
+            prompt (str): The prompt to send.
             
         Returns:
-            LLMResponse with the result
+            LLMResponse: The result from the first successful provider.
         """
         if not self.providers:
             return LLMResponse(
@@ -327,11 +473,13 @@ class LLMService:
         for i, provider in enumerate(self.providers, 1):
             debug_info(f"Trying provider {i}/{len(self.providers)}: {provider.name}")
             
-            # Use appropriate query method
+            # Use appropriate query method based on provider type
             if provider.provider_type == "ai4chat":
-                response = await self._query_ai4chat(prompt)
+                response: LLMResponse = await self._query_ai4chat(prompt)
+            elif provider.provider_type == "google":
+                response = await self._query_gemini(provider, prompt)
             else:
-                response = await self._query_langchain_provider(provider, prompt)
+                response = await self._query_openai_compatible(provider, prompt)
             
             if response.status == LLMStatus.SUCCESS:
                 self.last_successful_provider = provider.name
@@ -356,7 +504,7 @@ class LLMService:
         Get list of configured provider names.
         
         Returns:
-            List of provider names
+            list[str]: List of provider names.
         """
         return [p.name for p in self.providers]
 
@@ -370,7 +518,7 @@ def get_llm_service() -> LLMService:
     Get or create the LLM service singleton.
     
     Returns:
-        LLMService instance
+        LLMService: Singleton instance.
     """
     global _llm_service
     if _llm_service is None:

@@ -9,6 +9,9 @@ Usage:
     Vercel: Automatically deployed via vercel.json
 """
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -19,13 +22,32 @@ from config import APIConfig, debug_info, debug_error
 from routes.chat_routes import router as chat_router
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    Lifespan event handler for startup and shutdown.
+
+    Args:
+        app (FastAPI): The FastAPI application instance.
+
+    Yields:
+        None
+    """
+    # Startup
+    debug_info("🚀 NFL Chatbot API started successfully!")
+    debug_info(f"📚 Knowledge base path: {APIConfig.KNOWLEDGE_BASE_PATH}")
+    yield
+    # Shutdown (nothing to clean up)
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="NFL Chatbot API",
     description="RAG-based chatbot API representing Naufal (fal bot)",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Configure CORS
@@ -39,13 +61,6 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat_router, prefix="/api")
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Log startup message."""
-    debug_info("🚀 NFL Chatbot API started successfully!")
-    debug_info(f"📚 Knowledge base path: {APIConfig.KNOWLEDGE_BASE_PATH}")
 
 
 @app.get("/")
