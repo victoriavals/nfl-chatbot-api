@@ -20,6 +20,7 @@ from config import APIConfig, debug_info, debug_error
 
 # Import routes
 from routes.chat_routes import router as chat_router
+from routes.general_ai_routes import router as general_ai_router
 
 
 @asynccontextmanager
@@ -61,6 +62,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat_router, prefix="/api")
+app.include_router(general_ai_router, prefix="/api")
 
 
 @app.get("/")
