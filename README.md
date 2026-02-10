@@ -69,9 +69,12 @@ curl -X POST http://localhost:8000/api/chat \
 | Method | Endpoint | Auth | Deskripsi |
 |--------|----------|------|-----------|
 | GET | `/api/health` | ❌ | Health check |
-| POST | `/api/chat` | ✅ | Chat dengan RAG |
-| DELETE | `/api/memory/{user_id}` | ✅ | Clear memory |
-| GET | `/api/memory/{user_id}/length` | ✅ | Get memory length |
+| POST | `/api/chat` | ✅ | Chat dengan RAG (knowledge base) |
+| POST | `/api/general-ai` | ✅ | General AI chat (no RAG) |
+| DELETE | `/api/memory/{user_id}` | ✅ | Clear memory (RAG chat) |
+| DELETE | `/api/general-ai/memory/{user_id}` | ✅ | Clear memory (General AI) |
+| GET | `/api/memory/{user_id}/length` | ✅ | Get memory length (RAG) |
+| GET | `/api/general-ai/memory/{user_id}/length` | ✅ | Get memory length (General AI) |
 
 ### POST /api/chat
 
@@ -93,6 +96,45 @@ curl -X POST http://localhost:8000/api/chat \
   "model": "ai4chat",
   "memory_length": 2
 }
+```
+
+---
+
+### POST /api/general-ai
+
+**Purpose:** General conversational AI without knowledge base (no RAG)
+
+**Request:**
+```json
+{
+  "user_id": "user123",
+  "message": "What's the weather like?",
+  "system_prompt": "You are a helpful assistant.",  // Optional
+  "temperature": 0.8  // Optional (0.0-1.0)
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "response": "I don't have access to real-time weather data...",
+  "provider": "cerebras",
+  "model": "llama3.1-8b",
+  "memory_length": 4
+}
+```
+
+**Example (Custom System Prompt):**
+```bash
+curl -X POST http://localhost:8000/api/general-ai \
+  -H "X-API-Key: nfl-dev-key-2026" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user123",
+    "message": "Tell me a joke",
+    "system_prompt": "You are a funny comedian who loves puns."
+  }'
 ```
 
 ---
