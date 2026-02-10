@@ -105,7 +105,7 @@ async def chat(
         )
         
         # Get current memory length
-        memory_length: int = memory_service.get_memory_length(request.user_id)
+        memory_length: int = await memory_service.get_memory_length(request.user_id)
         
         if response.status == LLMStatus.SUCCESS:
             return ChatResponse(
@@ -155,7 +155,7 @@ async def clear_memory(
     debug_info(f"[API] Clearing memory for user: {user_id[:8]}...")
     
     memory_service = get_memory_service()
-    messages_cleared: int = memory_service.clear_memory(user_id)
+    messages_cleared: int = await memory_service.clear_memory(user_id)
     
     return ClearMemoryResponse(
         status="success",
@@ -183,7 +183,7 @@ async def get_memory_length(
     verify_api_key(x_api_key)
     
     memory_service = get_memory_service()
-    length: int = memory_service.get_memory_length(user_id)
+    length: int = await memory_service.get_memory_length(user_id)
     
     return {
         "user_id": user_id,
