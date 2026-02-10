@@ -45,7 +45,7 @@ class APIConfig:
     MEMORY_CLEANUP_THRESHOLD: ClassVar[int] = 100  # Cleanup when total users exceed
     
     # LLM Settings
-    DEFAULT_TEMPERATURE: ClassVar[float] = 0.7
+    DEFAULT_TEMPERATURE: ClassVar[float] = 0.85
     REQUEST_TIMEOUT: ClassVar[int] = 30  # seconds
     
     # Knowledge Base Path (in same folder as this config)

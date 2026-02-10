@@ -6,6 +6,7 @@ time-based activity detection, and augmented prompt building.
 """
 
 import os
+import random
 from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -136,6 +137,30 @@ Jika ada pertanyaan di luar konteks, jawab:
         
         return "Free Time"
     
+    def _get_random_mood(self) -> str:
+        """
+        Generate a random mood/personality flavor for prompt variation.
+        
+        Each request gets a different mood injected, ensuring the LLM
+        produces varied and creative responses.
+        
+        Returns:
+            str: A random mood descriptor in Bahasa Indonesia.
+        """
+        moods: list[str] = [
+            "Lagi semangat dan energik 🔥",
+            "Santai dan chill vibes aja",
+            "Agak iseng dan suka bercanda hari ini",
+            "Lagi kalem dan thoughtful",
+            "Excited banget, lagi good mood!",
+            "Agak random dan playful",
+            "Lagi fokus tapi tetap friendly",
+            "Vibes-nya warm dan supportive",
+            "Lagi seru-serunya, high energy",
+            "Chill tapi informatif",
+        ]
+        return random.choice(moods)
+    
     def build_augmented_prompt(
         self, 
         user_query: str, 
@@ -143,7 +168,9 @@ Jika ada pertanyaan di luar konteks, jawab:
         include_memory: bool = True
     ) -> str:
         """
-        Build augmented prompt with knowledge base, time, and memory.
+        Build augmented prompt with knowledge base, time, memory, and random mood.
+        
+        Injects a randomized mood to ensure varied, creative responses.
         
         Args:
             user_query: The user's question
@@ -155,6 +182,7 @@ Jika ada pertanyaan di luar konteks, jawab:
         """
         time_info: dict = self.get_current_time_info()
         activity_status: str = self.get_activity_status(time_info)
+        random_mood: str = self._get_random_mood()
         
         # Get conversation memory if enabled
         memory_context: str = ""
@@ -168,31 +196,39 @@ Jika ada pertanyaan di luar konteks, jawab:
                 memory_context = "\n".join(memory_lines)
         
         prompt: str = f"""
-=== CONTEXT INFORMATION ===
-Waktu saat ini: {time_info['formatted_date']}, jam {time_info['formatted_time']} WIB
+=== CONTEXT ===
+Waktu: {time_info['formatted_date']}, {time_info['formatted_time']} WIB
 Status aktivitas Naufal: {activity_status}
+Mood kamu sekarang: {random_mood}
 
 === KNOWLEDGE BASE ===
 {self.knowledge_base}
 
 === CONVERSATION HISTORY ===
-{memory_context if memory_context else "(Tidak ada riwayat)"}
+{memory_context if memory_context else "(Belum ada obrolan sebelumnya)"}
 
 === INSTRUKSI ===
-Kamu adalah fal bot, representasi digital dari Naufal. Jawab pertanyaan user berdasarkan HANYA informasi dari Knowledge Base di atas.
+Kamu adalah fal bot, representasi digital dari Naufal. Jawab berdasarkan Knowledge Base di atas.
 
-ATURAN PENTING:
-1. Gunakan gaya bahasa santai dan kasual.
-2. Gunakan kata ganti "Aku" atau "Saya".
-3. Jika pertanyaan tentang "lagi ngapain/sibuk gak", gunakan Status Aktivitas di atas.
-4. JANGAN mengarang informasi yang tidak ada di Knowledge Base.
-5. Jika pertanyaan di luar konteks Knowledge Base, jawab: "Wah aku gatau nih, tanya ke nomor Naufal langsung aja, tapi tunggu jawabannya."
-6. Pertimbangkan riwayat percakapan untuk konteks.
+ATURAN KREATIVITAS (WAJIB!):
+1. Gaya bahasa SANTAI dan KASUAL — kayak chat sama teman.
+2. WAJIB VARIASI: JANGAN pernah menjawab dengan kalimat yang persis sama. Selalu parafrase, ubah struktur kalimat, dan variasikan ekspresi.
+3. Variasikan kata pembuka ("Nah", "Btw", "Oh itu", "Wah", "Jadi gini", "Hmm", dll). JANGAN selalu mulai dengan "Aku...".
+4. Boleh elaborasi dan cerita ringan selama FAKTA tetap dari Knowledge Base.
+5. Sesuaikan mood jawaban dengan: {random_mood}
+6. Pertanyaan singkat → jawab singkat. Pertanyaan detail → jawab detail.
+7. Boleh pakai emoji, humor ringan, dan filler words ("sih", "nih", "dong", "wkwk") supaya natural.
+
+GUARDRAILS:
+- Jika pertanyaan tentang aktivitas/jadwal, gunakan Status Aktivitas di atas.
+- JANGAN mengarang fakta yang tidak ada di Knowledge Base.
+- Jika pertanyaan di luar konteks, tolak dengan santai dan sarankan kontak Naufal langsung. VARIASIKAN cara menolaknya.
+- Pertimbangkan riwayat percakapan untuk konteks.
 
 === PERTANYAAN USER ===
 {user_query}
 
-=== JAWABAN (gaya santai, kasual) ===
+=== JAWABAN (kreatif, santai, JANGAN template) ===
 """.strip()
 
         return prompt
