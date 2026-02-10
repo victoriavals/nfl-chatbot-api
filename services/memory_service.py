@@ -1,23 +1,22 @@
 """
-Memory Service - Conversation History Management.
+Memory Service - Conversation History Management with Supabase.
 
-This module provides in-memory conversation storage per user.
-For production, consider using Redis or a database.
+This module provides persistent conversation storage using Supabase PostgreSQL.
+Uses httpx for lightweight REST API calls (no SDK dependency).
 """
 
-from datetime import datetime
 from typing import Optional
-from collections import OrderedDict
+import httpx
 
-from config import APIConfig, debug_info, debug_warning
+from config import APIConfig, debug_info, debug_warning, debug_error
 
 
 class MemoryService:
     """
-    In-memory conversation storage service.
+    Persistent conversation storage service using Supabase.
     
-    Stores conversation history per user with configurable limits.
-    Memory is cleared when the server restarts.
+    Stores conversation history per user in PostgreSQL table.
+    Memory persists across server restarts.
     """
     
     def __init__(self, max_memory_per_user: int = 10) -> None:
@@ -28,45 +27,124 @@ class MemoryService:
             max_memory_per_user: Maximum messages to keep per user
         """
         self.max_memory: int = max_memory_per_user
-        self.storage: OrderedDict[str, list[dict]] = OrderedDict()
+        self.supabase_url: str = APIConfig.SUPABASE_URL
+        self.supabase_key: str = APIConfig.SUPABASE_KEY
         
-        debug_info(f"[Memory] Service initialized with max {max_memory_per_user} messages per user")
+        if not self.supabase_url or not self.supabase_key:
+            debug_warning("[Memory] Supabase credentials not configured - memory will not persist!")
+        else:
+            debug_info(f"[Memory] Service initialized with Supabase (max {max_memory_per_user} messages per user)")
     
-    def add_message(self, user_id: str, role: str, content: str) -> None:
+    def _get_headers(self) -> dict[str, str]:
         """
-        Add a message to user's conversation history.
+        Get HTTP headers for Supabase REST API.
+        
+        Returns:
+            dict: Headers with API key and authorization
+        """
+        return {
+            "apikey": self.supabase_key,
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal"
+        }
+    
+    async def add_message(self, user_id: str, role: str, content: str) -> None:
+        """
+        Add a message to user's conversation history in Supabase.
         
         Args:
             user_id: Unique user identifier
             role: Either 'user' or 'assistant'
             content: The message content
         """
-        if user_id not in self.storage:
-            self.storage[user_id] = []
+        if not self.supabase_url or not self.supabase_key:
+            debug_warning(f"[Memory] Skipping save - Supabase not configured")
+            return
         
-        message: dict = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        self.storage[user_id].append(message)
-        
-        # Trim if exceeds max
-        if len(self.storage[user_id]) > self.max_memory:
-            self.storage[user_id] = self.storage[user_id][-self.max_memory:]
-        
-        # Move user to end (most recent)
-        self.storage.move_to_end(user_id)
-        
-        debug_info(f"[Memory] Added {role} message for user {user_id[:8]}...")
-        
-        # Cleanup if too many users
-        self._cleanup_if_needed()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Insert new message
+                response: httpx.Response = await client.post(
+                    f"{self.supabase_url}/rest/v1/chat_memory",
+                    headers=self._get_headers(),
+                    json={
+                        "user_id": user_id,
+                        "role": role,
+                        "content": content
+                    }
+                )
+                
+                if response.status_code == 201:
+                    debug_info(f"[Memory] Added {role} message for user {user_id[:8]}...")
+                    
+                    # Cleanup old messages if exceeds max
+                    await self._cleanup_old_messages(user_id)
+                else:
+                    debug_error(f"[Memory] Failed to add message: HTTP {response.status_code}")
+                    
+        except Exception as e:
+            debug_error(f"[Memory] Error adding message: {str(e)[:100]}")
     
-    def get_memory(self, user_id: str) -> list[dict]:
+    async def _cleanup_old_messages(self, user_id: str) -> None:
         """
-        Get conversation history for a user.
+        Remove old messages if user has more than max_memory.
+        
+        Args:
+            user_id: User identifier
+        """
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Count messages for this user
+                count_response: httpx.Response = await client.get(
+                    f"{self.supabase_url}/rest/v1/chat_memory",
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "select": "id"
+                    },
+                    headers=self._get_headers()
+                )
+                
+                if count_response.status_code == 200:
+                    messages: list = count_response.json()
+                    count: int = len(messages)
+                    
+                    if count > self.max_memory:
+                        # Delete oldest messages
+                        to_delete: int = count - self.max_memory
+                        
+                        # Get IDs of oldest messages
+                        oldest_response: httpx.Response = await client.get(
+                            f"{self.supabase_url}/rest/v1/chat_memory",
+                            params={
+                                "user_id": f"eq.{user_id}",
+                                "select": "id",
+                                "order": "created_at.asc",
+                                "limit": str(to_delete)
+                            },
+                            headers=self._get_headers()
+                        )
+                        
+                        if oldest_response.status_code == 200:
+                            oldest_ids: list = oldest_response.json()
+                            ids_to_delete: list[int] = [msg["id"] for msg in oldest_ids]
+                            
+                            # Delete by IDs
+                            for msg_id in ids_to_delete:
+                                await client.delete(
+                                    f"{self.supabase_url}/rest/v1/chat_memory",
+                                    params={"id": f"eq.{msg_id}"},
+                                    headers=self._get_headers()
+                                )
+                            
+                            debug_info(f"[Memory] Cleaned up {to_delete} old messages for user {user_id[:8]}...")
+                            
+        except Exception as e:
+            debug_error(f"[Memory] Error during cleanup: {str(e)[:100]}")
+    
+    async def get_memory(self, user_id: str) -> list[dict]:
+        """
+        Get conversation history for a user from Supabase.
         
         Args:
             user_id: Unique user identifier
@@ -74,9 +152,45 @@ class MemoryService:
         Returns:
             List of message dictionaries
         """
-        return self.storage.get(user_id, [])
+        if not self.supabase_url or not self.supabase_key:
+            debug_warning(f"[Memory] Skipping get - Supabase not configured")
+            return []
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response: httpx.Response = await client.get(
+                    f"{self.supabase_url}/rest/v1/chat_memory",
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "select": "role,content,created_at",
+                        "order": "created_at.asc",
+                        "limit": str(self.max_memory)
+                    },
+                    headers=self._get_headers()
+                )
+                
+                if response.status_code == 200:
+                    messages: list[dict] = response.json()
+                    
+                    # Convert Supabase format to memory format
+                    formatted_messages: list[dict] = []
+                    for msg in messages:
+                        formatted_messages.append({
+                            "role": msg["role"],
+                            "content": msg["content"],
+                            "timestamp": msg["created_at"]
+                        })
+                    
+                    return formatted_messages
+                else:
+                    debug_error(f"[Memory] Failed to get memory: HTTP {response.status_code}")
+                    return []
+                    
+        except Exception as e:
+            debug_error(f"[Memory] Error getting memory: {str(e)[:100]}")
+            return []
     
-    def get_memory_length(self, user_id: str) -> int:
+    async def get_memory_length(self, user_id: str) -> int:
         """
         Get the number of messages in user's history.
         
@@ -86,9 +200,30 @@ class MemoryService:
         Returns:
             Number of messages
         """
-        return len(self.storage.get(user_id, []))
+        if not self.supabase_url or not self.supabase_key:
+            return 0
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response: httpx.Response = await client.get(
+                    f"{self.supabase_url}/rest/v1/chat_memory",
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "select": "id"
+                    },
+                    headers=self._get_headers()
+                )
+                
+                if response.status_code == 200:
+                    return len(response.json())
+                else:
+                    return 0
+                    
+        except Exception as e:
+            debug_error(f"[Memory] Error getting memory length: {str(e)[:100]}")
+            return 0
     
-    def clear_memory(self, user_id: str) -> int:
+    async def clear_memory(self, user_id: str) -> int:
         """
         Clear conversation history for a user.
         
@@ -98,39 +233,31 @@ class MemoryService:
         Returns:
             Number of messages cleared
         """
-        if user_id in self.storage:
-            count: int = len(self.storage[user_id])
-            del self.storage[user_id]
-            debug_info(f"[Memory] Cleared {count} messages for user {user_id[:8]}...")
-            return count
-        return 0
-    
-    def get_total_users(self) -> int:
-        """
-        Get total number of users with stored memory.
+        if not self.supabase_url or not self.supabase_key:
+            debug_warning(f"[Memory] Skipping clear - Supabase not configured")
+            return 0
         
-        Returns:
-            Number of users
-        """
-        return len(self.storage)
-    
-    def _cleanup_if_needed(self) -> None:
-        """
-        Remove oldest users if threshold exceeded.
-        
-        Removes the oldest 20% of users when threshold is reached.
-        """
-        threshold: int = APIConfig.MEMORY_CLEANUP_THRESHOLD
-        
-        if len(self.storage) > threshold:
-            # Remove oldest 20%
-            remove_count: int = threshold // 5
-            users_to_remove: list[str] = list(self.storage.keys())[:remove_count]
+        try:
+            # Get count first
+            count: int = await self.get_memory_length(user_id)
             
-            for user_id in users_to_remove:
-                del self.storage[user_id]
-            
-            debug_warning(f"[Memory] Cleaned up {remove_count} oldest users")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response: httpx.Response = await client.delete(
+                    f"{self.supabase_url}/rest/v1/chat_memory",
+                    params={"user_id": f"eq.{user_id}"},
+                    headers=self._get_headers()
+                )
+                
+                if response.status_code in (200, 204):
+                    debug_info(f"[Memory] Cleared {count} messages for user {user_id[:8]}...")
+                    return count
+                else:
+                    debug_error(f"[Memory] Failed to clear memory: HTTP {response.status_code}")
+                    return 0
+                    
+        except Exception as e:
+            debug_error(f"[Memory] Error clearing memory: {str(e)[:100]}")
+            return 0
 
 
 # Singleton instance
