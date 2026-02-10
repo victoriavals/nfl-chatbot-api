@@ -161,7 +161,7 @@ Jika ada pertanyaan di luar konteks, jawab:
         ]
         return random.choice(moods)
     
-    def build_augmented_prompt(
+    async def build_augmented_prompt(
         self, 
         user_query: str, 
         user_id: str,
@@ -187,7 +187,7 @@ Jika ada pertanyaan di luar konteks, jawab:
         # Get conversation memory if enabled
         memory_context: str = ""
         if include_memory:
-            memory_items = self.memory_service.get_memory(user_id)
+            memory_items = await self.memory_service.get_memory(user_id)
             if memory_items:
                 memory_lines: list[str] = []
                 for item in memory_items[-5:]:  # Last 5 messages
@@ -254,11 +254,11 @@ GUARDRAILS:
         debug_info(f"[RAG] Message: {message[:50]}...")
         
         # Save user message to memory
-        self.memory_service.add_message(user_id, "user", message)
+        await self.memory_service.add_message(user_id, "user", message)
         
         try:
             # Build augmented prompt
-            augmented_prompt: str = self.build_augmented_prompt(
+            augmented_prompt: str = await self.build_augmented_prompt(
                 user_query=message,
                 user_id=user_id,
                 include_memory=include_memory
@@ -269,7 +269,7 @@ GUARDRAILS:
             
             # Save assistant response to memory if successful
             if response.status == LLMStatus.SUCCESS and response.content:
-                self.memory_service.add_message(user_id, "assistant", response.content)
+                await self.memory_service.add_message(user_id, "assistant", response.content)
             
             return response
             
