@@ -37,15 +37,17 @@ def verify_api_key(x_api_key: Optional[str] = Header(None)) -> str:
     Raises:
         HTTPException: If API key is missing or invalid
     """
-    if not x_api_key:
+    # Check if header is completely missing (None), not just empty string
+    if x_api_key is None:
         debug_warning("[Auth] Missing API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing API key. Provide X-API-Key header."
         )
     
+    # Allow empty string if configured in APIConfig
     if x_api_key != APIConfig.API_KEY:
-        debug_warning(f"[Auth] Invalid API key: {x_api_key[:8]}...")
+        debug_warning(f"[Auth] Invalid API key: {x_api_key[:8] if x_api_key else '(empty)'}...")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key"
