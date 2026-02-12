@@ -98,7 +98,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
         content={
             "status": "error",
             "message": "Internal server error",
-            "detail": str(exc) if APIConfig.API_KEY == "nfl-dev-key-2026" else None
+            "detail": str(exc) if APIConfig.IS_DEBUG_MODE else None
         }
     )
 
