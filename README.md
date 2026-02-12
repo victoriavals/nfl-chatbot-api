@@ -57,7 +57,7 @@ curl http://localhost:8000/api/health
 
 # Chat
 curl -X POST http://localhost:8000/api/chat \
-  -H "X-API-Key: nfl-dev-key-2026" \
+  -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"user_id": "test123", "message": "Siapa kamu?"}'
 ```
@@ -128,7 +128,7 @@ curl -X POST http://localhost:8000/api/chat \
 **Example (Custom System Prompt):**
 ```bash
 curl -X POST http://localhost:8000/api/general-ai \
-  -H "X-API-Key: nfl-dev-key-2026" \
+  -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user123",
