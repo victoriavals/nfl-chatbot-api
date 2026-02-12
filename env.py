@@ -45,6 +45,9 @@ class ConstantsVar:
     MY_GEMINI_API_KEY: str = os.getenv("MY_GEMINI_API_KEY", "")
     MY_GROQ_API_KEY: str = os.getenv("MY_GROQ_API_KEY", "")
     
+    ## App Authentication
+    NFL_CHATBOT_API_KEY: str = os.getenv("NFL_CHATBOT_API_KEY", "")
+    
     ## Supabase
     SUPABASE_PROJECT_URL: str = os.getenv("SUPABASE_PROJECT_URL", "")
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_PUBLIC_KEY", "")
