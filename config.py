@@ -30,7 +30,7 @@ class APIConfig:
     """
     
     # API Authentication
-    API_KEY: ClassVar[str] = os.getenv("NFL_CHATBOT_API_KEY", "")
+    API_KEY: ClassVar[str] = ConstantsVar.NFL_CHATBOT_API_KEY
     
     # CORS Settings
     ALLOWED_ORIGINS: ClassVar[list[str]] = [
